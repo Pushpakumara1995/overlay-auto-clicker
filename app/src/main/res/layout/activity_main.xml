@@ -10,7 +10,7 @@
         android:id="@+id/helloText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Overlay Auto Clicker - Step 1"
+        android:text="Overlay Auto Clicker - Step 2"
         android:textSize="20sp"
         android:paddingBottom="24dp" />
 
@@ -26,6 +26,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="2. Start overlay box"
+        android:layout_marginTop="16dp"
+        android:padding="12dp" />
+
+    <Button
+        android:id="@+id/btnStartCapture"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="3. Start screen capture"
         android:layout_marginTop="16dp"
         android:padding="12dp" />
 

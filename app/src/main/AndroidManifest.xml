@@ -21,9 +21,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Our overlay service (will show the draggable box) -->
+        <!-- Our overlay service (shows the draggable box) -->
         <service
             android:name=".OverlayService"
+            android:exported="false" />
+
+        <!-- Our screen capture service (will read pixels from the screen) -->
+        <service
+            android:name=".ScreenCaptureService"
             android:exported="false" />
 
     </application>

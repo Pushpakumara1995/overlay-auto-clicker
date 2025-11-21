@@ -17,9 +17,6 @@ import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.widget.Toast
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class ScreenCaptureService : Service() {
 
@@ -35,12 +32,8 @@ class ScreenCaptureService : Service() {
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
 
-    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
     private var lastProcessTime: Long = 0L
     private var lastToastTime: Long = 0L
-    private var lastValue: Float? = null
-    private var prevValue: Float? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,6 +46,8 @@ class ScreenCaptureService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+
+        Toast.makeText(this, "Capture service starting", Toast.LENGTH_SHORT).show()
 
         val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
@@ -84,11 +79,13 @@ class ScreenCaptureService : Service() {
             null
         )
 
+        Toast.makeText(this, "Virtual display created", Toast.LENGTH_SHORT).show()
+
         imageReader?.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
 
             val now = System.currentTimeMillis()
-            if (now - lastProcessTime < 500) {
+            if (now - lastProcessTime < 1000) { // once per second
                 image.close()
                 return@setOnImageAvailableListener
             }
@@ -98,9 +95,7 @@ class ScreenCaptureService : Service() {
             image.close()
 
             if (fullBitmap != null) {
-                // Crop to overlay box area
-                val roiBitmap = cropToOverlay(fullBitmap)
-                runTextRecognition(roiBitmap)
+                showFrameToast()
             }
         }, Handler(Looper.getMainLooper()))
     }
@@ -119,74 +114,22 @@ class ScreenCaptureService : Service() {
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
-
             Bitmap.createBitmap(bitmap, 0, 0, width, height)
         } catch (e: Exception) {
             null
         }
     }
 
-    private fun cropToOverlay(full: Bitmap): Bitmap {
-        val x = OverlayPosition.x.coerceIn(0, screenWidth - 1)
-        val y = OverlayPosition.y.coerceIn(0, screenHeight - 1)
-        val w = OverlayPosition.width.coerceIn(50, screenWidth - x)
-        val h = OverlayPosition.height.coerceIn(50, screenHeight - y)
-
-        return try {
-            Bitmap.createBitmap(full, x, y, w, h)
-        } catch (e: Exception) {
-            full
+    private fun showFrameToast() {
+        val now = System.currentTimeMillis()
+        if (now - lastToastTime > 1000) {
+            lastToastTime = now
+            Toast.makeText(
+                applicationContext,
+                "Got frame from screen",
+                Toast.LENGTH_SHORT
+            ).show()
         }
-    }
-
-    private fun runTextRecognition(bitmap: Bitmap) {
-        val image = InputImage.fromBitmap(bitmap, 0)
-
-        recognizer.process(image)
-            .addOnSuccessListener { visionText ->
-                val fullText = visionText.text ?: ""
-                val value = extractValueWithX(fullText)
-
-                if (value != null) {
-                    prevValue = lastValue
-                    lastValue = value
-
-                    val now = System.currentTimeMillis()
-                    // Show debug value toast at most once per second
-                    if (now - lastToastTime > 1000) {
-                        lastToastTime = now
-                        Toast.makeText(
-                            applicationContext,
-                            "Value: $value",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-
-                    val p = prevValue
-                    val c = lastValue
-
-                    // Your rule: two values in a row <= 2.00
-                    if (p != null && c != null && p <= 2.0f && c <= 2.0f) {
-                        Toast.makeText(
-                            applicationContext,
-                            "Condition met: $p and $c",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        // Later: trigger auto‑tap here
-                    }
-                }
-            }
-            .addOnFailureListener {
-                // ignore for now
-            }
-    }
-
-    private fun extractValueWithX(text: String): Float? {
-        val regex = Regex("""(\d+(?:\.\d+)?)\s*[xX]""")
-        val matches = regex.findAll(text)
-        val last = matches.lastOrNull() ?: return null
-        val numberPart = last.groupValues[1]
-        return numberPart.toFloatOrNull()
     }
 
     override fun onDestroy() {

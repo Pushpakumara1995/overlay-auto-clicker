@@ -23,9 +23,8 @@ class OverlayService : Service() {
     private fun addOverlayView() {
         if (overlayView != null) return
 
-        // Simple red rectangle for now (later this will be your number-reading box)
         val view = View(this)
-        view.setBackgroundColor(0x55FF0000) // semi‑transparent red
+        view.setBackgroundColor(0x55FF0000.toInt()) // semi‑transparent red
 
         val width = 300
         val height = 200
@@ -44,12 +43,13 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         )
 
-        // Start position on screen
         params.gravity = Gravity.TOP or Gravity.START
         params.x = 100
         params.y = 200
 
-        // Make the box draggable with finger
+        // Save initial position/size
+        OverlayPosition.update(params.x, params.y, width, height)
+
         view.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -69,6 +69,9 @@ class OverlayService : Service() {
                         params.x = initialX + (event.rawX - initialTouchX).toInt()
                         params.y = initialY + (event.rawY - initialTouchY).toInt()
                         windowManager.updateViewLayout(view, params)
+
+                        // Update shared position each time we move
+                        OverlayPosition.update(params.x, params.y, width, height)
                         return true
                     }
                 }

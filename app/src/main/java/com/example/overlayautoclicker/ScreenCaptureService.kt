@@ -15,7 +15,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.view.WindowManager
 import android.widget.Toast
 
 class ScreenCaptureService : Service() {
@@ -58,46 +57,70 @@ class ScreenCaptureService : Service() {
     }
 
     private fun startCapture() {
-        val metrics = DisplayMetrics()
-        val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        windowManager.defaultDisplay.getRealMetrics(metrics)
+        try {
+            // Simpler: use resources.displayMetrics instead of WindowManager
+            val metrics: DisplayMetrics = resources.displayMetrics
+            screenWidth = metrics.widthPixels
+            screenHeight = metrics.heightPixels
+            val density = metrics.densityDpi
 
-        screenWidth = metrics.widthPixels
-        screenHeight = metrics.heightPixels
-        val density = metrics.densityDpi
+            imageReader = ImageReader.newInstance(
+                screenWidth,
+                screenHeight,
+                PixelFormat.RGBA_8888,
+                2
+            )
 
-        imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
+            if (mediaProjection == null) {
+                Toast.makeText(this, "MediaProjection is null", Toast.LENGTH_LONG).show()
+                stopSelf()
+                return
+            }
 
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "screen-capture",
-            screenWidth,
-            screenHeight,
-            density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface,
-            null,
-            null
-        )
+            virtualDisplay = mediaProjection!!.createVirtualDisplay(
+                "screen-capture",
+                screenWidth,
+                screenHeight,
+                density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null,
+                null
+            )
 
-        Toast.makeText(this, "Virtual display created", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Virtual display created", Toast.LENGTH_SHORT).show()
 
-        imageReader?.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            imageReader?.setOnImageAvailableListener({ reader ->
+                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
 
-            val now = System.currentTimeMillis()
-            if (now - lastProcessTime < 1000) { // once per second
+                val now = System.currentTimeMillis()
+                if (now - lastProcessTime < 1000) { // at most once per second
+                    image.close()
+                    return@setOnImageAvailableListener
+                }
+                lastProcessTime = now
+
+                val bitmap = imageToBitmap(image, screenWidth, screenHeight)
                 image.close()
-                return@setOnImageAvailableListener
-            }
-            lastProcessTime = now
 
-            val fullBitmap = imageToBitmap(image, screenWidth, screenHeight)
-            image.close()
-
-            if (fullBitmap != null) {
-                showFrameToast()
-            }
-        }, Handler(Looper.getMainLooper()))
+                if (bitmap != null) {
+                    showFrameToast()
+                } else {
+                    Toast.makeText(
+                        applicationContext,
+                        "Failed to convert image",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }, Handler(Looper.getMainLooper()))
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "startCapture error: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+            stopSelf()
+        }
     }
 
     private fun imageToBitmap(image: Image, width: Int, height: Int): Bitmap? {

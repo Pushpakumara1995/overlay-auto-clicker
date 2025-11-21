@@ -38,6 +38,7 @@ class ScreenCaptureService : Service() {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     private var lastProcessTime: Long = 0L
+    private var lastToastTime: Long = 0L
     private var lastValue: Float? = null
     private var prevValue: Float? = null
 
@@ -87,18 +88,19 @@ class ScreenCaptureService : Service() {
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
 
             val now = System.currentTimeMillis()
-            // Only process about twice a second to avoid overload
             if (now - lastProcessTime < 500) {
                 image.close()
                 return@setOnImageAvailableListener
             }
             lastProcessTime = now
 
-            val bitmap = imageToBitmap(image, screenWidth, screenHeight)
+            val fullBitmap = imageToBitmap(image, screenWidth, screenHeight)
             image.close()
 
-            if (bitmap != null) {
-                runTextRecognition(bitmap)
+            if (fullBitmap != null) {
+                // Crop to overlay box area
+                val roiBitmap = cropToOverlay(fullBitmap)
+                runTextRecognition(roiBitmap)
             }
         }, Handler(Looper.getMainLooper()))
     }
@@ -118,10 +120,22 @@ class ScreenCaptureService : Service() {
             )
             bitmap.copyPixelsFromBuffer(buffer)
 
-            // Crop to the actual screen size (remove padding)
             Bitmap.createBitmap(bitmap, 0, 0, width, height)
         } catch (e: Exception) {
             null
+        }
+    }
+
+    private fun cropToOverlay(full: Bitmap): Bitmap {
+        val x = OverlayPosition.x.coerceIn(0, screenWidth - 1)
+        val y = OverlayPosition.y.coerceIn(0, screenHeight - 1)
+        val w = OverlayPosition.width.coerceIn(50, screenWidth - x)
+        val h = OverlayPosition.height.coerceIn(50, screenHeight - y)
+
+        return try {
+            Bitmap.createBitmap(full, x, y, w, h)
+        } catch (e: Exception) {
+            full
         }
     }
 
@@ -137,31 +151,37 @@ class ScreenCaptureService : Service() {
                     prevValue = lastValue
                     lastValue = value
 
-                    // Our rule: value <= 2.00x twice in a row
+                    val now = System.currentTimeMillis()
+                    // Show debug value toast at most once per second
+                    if (now - lastToastTime > 1000) {
+                        lastToastTime = now
+                        Toast.makeText(
+                            applicationContext,
+                            "Value: $value",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
                     val p = prevValue
                     val c = lastValue
 
+                    // Your rule: two values in a row <= 2.00
                     if (p != null && c != null && p <= 2.0f && c <= 2.0f) {
                         Toast.makeText(
                             applicationContext,
                             "Condition met: $p and $c",
-                            Toast.LENGTH_SHORT
+                            Toast.LENGTH_LONG
                         ).show()
-
-                        // LATER: here we will trigger auto‑tap
-                    } else {
-                        // Optional debug:
-                        // Toast.makeText(applicationContext, "Value: $c", Toast.LENGTH_SHORT).show()
+                        // Later: trigger auto‑tap here
                     }
                 }
             }
             .addOnFailureListener {
-                // Ignore for now
+                // ignore for now
             }
     }
 
     private fun extractValueWithX(text: String): Float? {
-        // Look for patterns like "2.21X" or "1.95x"
         val regex = Regex("""(\d+(?:\.\d+)?)\s*[xX]""")
         val matches = regex.findAll(text)
         val last = matches.lastOrNull() ?: return null

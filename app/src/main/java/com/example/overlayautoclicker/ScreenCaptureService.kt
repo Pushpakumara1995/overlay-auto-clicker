@@ -3,11 +3,9 @@ package com.example.overlayautoclicker
 import android.app.Activity
 import android.app.Service
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -31,38 +29,55 @@ class ScreenCaptureService : Service() {
     private var screenWidth: Int = 0
     private var screenHeight: Int = 0
 
-    private var lastProcessTime: Long = 0L
-    private var lastToastTime: Long = 0L
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
-            ?: Activity.RESULT_CANCELED
-        val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
+        try {
+            Toast.makeText(this, "S1: onStartCommand", Toast.LENGTH_SHORT).show()
 
-        if (resultCode != Activity.RESULT_OK || data == null) {
+            val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
+                ?: Activity.RESULT_CANCELED
+            val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
+
+            Toast.makeText(this, "S2: resultCode=$resultCode, dataNull=${data == null}", Toast.LENGTH_SHORT).show()
+
+            if (resultCode != Activity.RESULT_OK || data == null) {
+                Toast.makeText(this, "S3: bad result, stopping", Toast.LENGTH_SHORT).show()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+
+            if (mediaProjection == null) {
+                Toast.makeText(this, "S4: mediaProjection null", Toast.LENGTH_LONG).show()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            Toast.makeText(this, "S5: mediaProjection ok", Toast.LENGTH_SHORT).show()
+
+            startCaptureDebug()
+
+            return START_STICKY
+        } catch (e: Exception) {
+            Toast.makeText(this, "S_ERR: ${e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
             stopSelf()
             return START_NOT_STICKY
         }
-
-        Toast.makeText(this, "Capture service starting", Toast.LENGTH_SHORT).show()
-
-        val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
-
-        startCapture()
-
-        return START_STICKY
     }
 
-    private fun startCapture() {
+    private fun startCaptureDebug() {
         try {
-            // Simpler: use resources.displayMetrics instead of WindowManager
+            Toast.makeText(this, "C1: startCapture", Toast.LENGTH_SHORT).show()
+
             val metrics: DisplayMetrics = resources.displayMetrics
             screenWidth = metrics.widthPixels
             screenHeight = metrics.heightPixels
             val density = metrics.densityDpi
+
+            Toast.makeText(this, "C2: w=$screenWidth h=$screenHeight", Toast.LENGTH_SHORT).show()
 
             imageReader = ImageReader.newInstance(
                 screenWidth,
@@ -71,11 +86,7 @@ class ScreenCaptureService : Service() {
                 2
             )
 
-            if (mediaProjection == null) {
-                Toast.makeText(this, "MediaProjection is null", Toast.LENGTH_LONG).show()
-                stopSelf()
-                return
-            }
+            Toast.makeText(this, "C3: imageReader ok", Toast.LENGTH_SHORT).show()
 
             virtualDisplay = mediaProjection!!.createVirtualDisplay(
                 "screen-capture",
@@ -88,70 +99,25 @@ class ScreenCaptureService : Service() {
                 null
             )
 
-            Toast.makeText(this, "Virtual display created", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "C4: virtualDisplay ok", Toast.LENGTH_SHORT).show()
 
             imageReader?.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val image = reader.acquireLatestImage()
+                image?.close()
 
-                val now = System.currentTimeMillis()
-                if (now - lastProcessTime < 1000) { // at most once per second
-                    image.close()
-                    return@setOnImageAvailableListener
-                }
-                lastProcessTime = now
-
-                val bitmap = imageToBitmap(image, screenWidth, screenHeight)
-                image.close()
-
-                if (bitmap != null) {
-                    showFrameToast()
-                } else {
-                    Toast.makeText(
-                        applicationContext,
-                        "Failed to convert image",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                Toast.makeText(
+                    applicationContext,
+                    "C5: got frame",
+                    Toast.LENGTH_SHORT
+                ).show()
             }, Handler(Looper.getMainLooper()))
         } catch (e: Exception) {
             Toast.makeText(
                 this,
-                "startCapture error: ${e.message}",
+                "C_ERR: ${e.javaClass.simpleName}",
                 Toast.LENGTH_LONG
             ).show()
             stopSelf()
-        }
-    }
-
-    private fun imageToBitmap(image: Image, width: Int, height: Int): Bitmap? {
-        return try {
-            val plane = image.planes[0]
-            val buffer = plane.buffer
-            val pixelStride = plane.pixelStride
-            val rowStride = plane.rowStride
-            val rowPadding = rowStride - pixelStride * width
-
-            val bitmap = Bitmap.createBitmap(
-                width + rowPadding / pixelStride,
-                height,
-                Bitmap.Config.ARGB_8888
-            )
-            bitmap.copyPixelsFromBuffer(buffer)
-            Bitmap.createBitmap(bitmap, 0, 0, width, height)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun showFrameToast() {
-        val now = System.currentTimeMillis()
-        if (now - lastToastTime > 1000) {
-            lastToastTime = now
-            Toast.makeText(
-                applicationContext,
-                "Got frame from screen",
-                Toast.LENGTH_SHORT
-            ).show()
         }
     }
 
